@@ -15,6 +15,11 @@ from mazes import *
 #                        on_generation=on_generation,
 #                        on_stop=on_stop)
 
+char2num = {"#": 0, ".": 1, "S": 2, "E": 3}
+def convert(mazeChars):
+    return np.array([[char2num[char] for char in line] for line in mazeChars], dtype=np.int8)
+
+#print(convert(maze2))
 
 def fitness_func(solution, solution_idx):
     # TO-DO
