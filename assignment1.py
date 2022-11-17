@@ -17,6 +17,41 @@ maze = convert(original_maze)
 start = list(zip(*np.where(maze == 2)))[0]
 end = list(zip(*np.where(maze == 3)))[0]
 
+# Moves before hitting wall or to the end
+def valid_solution_part(moves: np.ndarray, maze: np.ndarray):
+    a, b = start
+    moves_sum = np.array([moves == 0, moves == 1, moves == 2, moves == 3]).cumsum(axis=1)
+    indexes1 = a - moves_sum[0,:] + moves_sum[1,:]
+    indexes2 = b - moves_sum[2,:] + moves_sum[3,:]
+    out_of_maze1 = np.nonzero(np.logical_or(indexes1 < 0, indexes1 >= maze.shape[0]))[0]
+    out_of_maze2 = np.nonzero(np.logical_or(indexes2 < 0, indexes2 >= maze.shape[1]))[0]
+    n_valid_moves = moves.size
+    if out_of_maze1.size > 0 :
+        n_valid_moves = min(out_of_maze1[0], n_valid_moves)
+    if out_of_maze2.size > 0:
+        n_valid_moves = min(out_of_maze2[0], n_valid_moves)
+    field_values = maze[indexes1[:n_valid_moves], indexes2[:n_valid_moves]]
+    walls = np.nonzero(field_values == 0)[0]
+    if walls.size > 0:
+        n_valid_moves = walls[0] # index of first move, that hit the wall
+    finished = False
+    end = np.nonzero(field_values[:n_valid_moves] == char2num["E"])[0]
+    if end.size > 0:
+        finished = True
+        n_valid_moves = end[0] + 1
+    different_fields = np.zeros_like(maze)
+    different_fields[indexes1[:n_valid_moves], indexes2[:n_valid_moves]] = 1
+    dots_travelled = different_fields.sum()
+    return moves[:n_valid_moves], finished, dots_travelled
+
+def fitness_func_klemen(solution, solution_idx):
+    moves, finished, dots_travelled = valid_solution_part(solution, maze)
+    n_moves = moves.size
+    if finished:
+        return 1000 - n_moves
+    else:
+        return dots_travelled - n_moves / 1000
+
 # Define fitness function
 def fitness_func_aljaz(solution, solution_idx):
     score = 0
@@ -159,7 +194,7 @@ ga_instance = pygad.GA(num_generations=2000,
                        crossover_type="uniform",
                     #    crossover_type=crossover_func,
                     #    mutation_type=mutation_func,
-                       fitness_func=fitness_func_aljaz,
+                       fitness_func=fitness_func_klemen,
                        on_generation=on_generation,
                        on_stop=on_stop)
 
