@@ -13,13 +13,12 @@ def convert(mazeChars):
 move_letters = ["U", "D", "L", "R"]
 
 # Choose the maze
-original_maze = maze5
+original_maze = maze4
 maze = convert(original_maze)
 
 # Get the coordinates of 'S' and 'E': (row, column)
 start = list(zip(*np.where(maze == 2)))[0]
 end = list(zip(*np.where(maze == 3)))[0]
-print(start, end)
 
 # Moves before hitting wall or to the end
 def valid_solution_part(moves: np.ndarray, maze: np.ndarray):
@@ -54,6 +53,34 @@ def fitness_func_klemen(solution, solution_idx):
     else:
         return dots_travelled - n_moves / 1000
 
+
+def moves_before_end(solution):
+    # indexes of rows and columns
+    rows, cols = indexes_visited(solution, start[0], start[1])
+
+    # indexes of moves, not rows an columns
+    out_of_maze_rows = np.nonzero(np.logical_or(rows < 0, rows >= maze.shape[0]))[0]
+    out_of_maze_cols = np.nonzero(np.logical_or(cols < 0, cols >= maze.shape[1]))[0]
+
+    # indexes of moves that go out of maze
+    out = np.unique(np.concatenate((out_of_maze_cols, out_of_maze_rows)))
+
+    # indexes of moves that stay in maze
+    in_maze = np.arange(solution.shape[0])
+    in_maze[out] = -1
+    in_maze = in_maze[np.nonzero(in_maze != -1)]
+
+    # values of fields visited to the end (excluding thos out of maze)
+    fields = maze[rows[in_maze], cols[in_maze]]
+
+    # indexes of moves, that go to end
+    ends = np.nonzero(fields == 3)[0]
+    
+    # number of all moves before first end
+    moves_to_end = solution.size if ends.size == 0 else ends[0]
+    return moves_to_end
+
+
 def fitness_func_klemen2(solution, solution_idx):
     moves, finished, dots_travelled = valid_solution_part(solution, maze)
 
@@ -63,25 +90,48 @@ def fitness_func_klemen2(solution, solution_idx):
     # indexes of moves, not rows an columns
     out_of_maze_rows = np.nonzero(np.logical_or(rows < 0, rows >= maze.shape[0]))[0]
     out_of_maze_cols = np.nonzero(np.logical_or(cols < 0, cols >= maze.shape[1]))[0]
+
+    # indexes of moves that go out of maze
     out = np.unique(np.concatenate((out_of_maze_cols, out_of_maze_rows)))
+
+    # indexes of moves that stay in maze
     in_maze = np.arange(solution.shape[0])
     in_maze[out] = -1
     in_maze = in_maze[np.nonzero(in_maze != -1)]
+
+    # values of fields visited to the end (excluding thos out of maze)
     fields = maze[rows[in_maze], cols[in_maze]]
+
+    # indexes of moves, that go to end
+    ends = np.nonzero(fields == 3)[0]
+    
+    # number of all moves before first end
+    moves_to_end = solution.size if ends.size == 0 else ends[0]
+    
+    # new values calculated only on moves before end
+    out = out[out < moves_to_end]
+    in_maze = np.arange(moves_to_end)
+    in_maze[out] = -1
+    in_maze = in_maze[np.nonzero(in_maze != -1)]
+    fields = maze[rows[in_maze], cols[in_maze]]
+
+    # number of moves before end going into the wall
     walls = np.sum(fields == 0)
+
+    # number of moves before end going on valid field
     dots = np.sum(fields == 1)
+
+    # bit mask of all fields (including walls) before end
     fields_travelled = np.zeros_like(maze)
     fields_travelled[rows[in_maze], cols[in_maze]] = 1
+
+    # number of different dots visited before end
     different_dots = ((maze == 1) * fields_travelled).sum()
-    #print("".join([move_letters[int(m)] for m in solution]))
-    #print(rows)
-    #print(cols)
-    #print(fields, walls, dots, different_dots, out.size)
-    #return
+
     if finished:
         return 1000000 - moves.size
     else:
-        return out.size * (-10000) + walls * (-100) + different_dots
+        return out.size * (-10000) + walls * (-100) + different_dots * 20
 
 
 
@@ -147,14 +197,16 @@ def crossover_func(parents, offspring_size, ga_instance):
 
     return np.array(offspring)
 
-# Initial population with all solutions arriving to end, but going through walls
+# Initial population with all solutions arriving to end after aproximately half of possible moves,
+# but going through walls and out of maze
+# num_genes mut be at least two times bigger than distance between start and end
 def initial_to_end_through_walls(sol_per_pop, num_genes, start, end, maze_shape):
     col, row = start
     population = np.zeros((sol_per_pop, num_genes), dtype=np.int32)
     for i in range(sol_per_pop):
         distance_row = end[0] - start[0]
         distance_col = end[1] - start[1]
-        free_moves = num_genes - abs(distance_col) - abs(distance_row)
+        free_moves = num_genes // 2 - abs(distance_col) - abs(distance_row)
         if distance_row > 0:
             up = free_moves // 4
             down = free_moves // 4 + distance_row
@@ -219,9 +271,9 @@ def mutation_func_two_adjacent_genes(offspring, ga_instance):
 
 # Mutate two adjacent genese like so, that moves behind mutation stay on tha same path
 def mutate_two_adjacent_genes(chromosome: np.ndarray):
-    valid_part, _, _ = valid_solution_part(chromosome, maze)
-    mutation_location = random.randint(0, chromosome.size - 2)
-    #mutation_location = random.randint(0, valid_part.size)
+    #valid_part, _, _ = valid_solution_part(chromosome, maze)
+    #mutation_location = random.randint(0, chromosome.size - 2)
+    mutation_location = random.randint(0, max(moves_before_end(chromosome) - 2, 0))
     #mutation_location = valid_part.size
     gene1, gene2 = chromosome[mutation_location], chromosome[mutation_location + 1]
 
@@ -315,19 +367,18 @@ def on_stop(ga_instance, fitness):
     print('\n')
 
 
-population = initial_to_end_through_walls(50, np.where(maze == 1)[0].size * 2, start, end, maze.shape)
-print(population[0])
+population = initial_to_end_through_walls(100, np.where(maze == 1)[0].size * 4, start, end, maze.shape)
 
 # Creating an instance of the GA class inside the ga module.
 ga_instance = pygad.GA(num_generations=2000,
                        num_parents_mating=10, 
-                       sol_per_pop=50,
+                       #sol_per_pop=50,
                        initial_population=population,
-                       num_genes=np.where(maze == 1)[0].size * 2,
+                       #num_genes=np.where(maze == 1)[0].size * 2,
                        gene_space=[0, 1, 2, 3],
                        keep_elitism=5,
                        #random_seed=2,
-                       stop_criteria="saturate_100", # stop evolution, if the fitness does not change for 100 consecutive generations.
+                       stop_criteria="saturate_200", # stop evolution, if the fitness does not change for 100 consecutive generations.
                        crossover_type=None,
                     #    crossover_type=crossover_func,
                        mutation_type=mutation_func_two_adjacent_genes,
