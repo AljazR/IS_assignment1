@@ -10,6 +10,8 @@ char2num = {"#": 0, ".": 1, "S": 2, "E": 3, "T": 4}
 def convert(mazeChars):
     return np.array([[char2num[char] for char in line] for line in mazeChars], dtype=np.int32)
 
+
+## FITNESS FUNCITIONS
 # Moves before hitting wall or to the end
 def valid_solution_part(moves: np.ndarray, maze: np.ndarray):
     a, b = start
@@ -130,10 +132,10 @@ def fitness_func_aljaz(solution, solution_idx):
     number_of_moves = 0
     treasures_coordinates = []
 
-    # loop over every step of solution and penalize for moving back and forth
+    # loop over every step of solution
     for move in solution:
         number_of_moves += 1
-        if move == 0:
+        if move == 0: # penalizing for moving back to the same coordinate
             row -= 1
             if last_move == 1:
                 score -= 500
@@ -190,70 +192,10 @@ def same_coordinate_crossover(parent1, parent2, coordinates_parent1, coordinates
         child = [*child, *parent2[p2_index:]]
     return child[:len(parent1)]
 
-def same_coordinate_crossover2(parent1, parent2, coordinates_parent1, coordinates_parent2, same_coordinate):
-    p1_index = coordinates_parent1.index(same_coordinate)
-    p2_index = coordinates_parent2.index(same_coordinate)
-    if p1_index == p2_index:
-        child = [*parent1[:p1_index], *parent2[p2_index:]]
-    elif p1_index > p2_index:
-        child = [*parent1[:p1_index], *parent2[p2_index:]]
-        child = [*child, *parent1[p1_index:]]
-    else:
-        child = [*parent2[:p2_index], *parent2[p1_index:]]
-        child = [*child, *parent2[p2_index:]]
-    return child[:len(parent1)]
 
-# splits on random same coordinate of both parents (if possible on field )
-def crossover_func_ver1(parents, offspring_size, ga_instance):
-    height, width =  maze.shape
-    offspring = []
-    id_parent = 0
-    while len(offspring) != offspring_size[0]:
-        # choose two parents
-        parent1 = parents[id_parent % parents.shape[0], :].copy()
-        parent2 = parents[(id_parent + 1) % parents.shape[0], :].copy()
-
-        # get all coordinates for both parents
-        rows1, cols1 = indexes_visited(parent1, start[0], start[1])
-        rows2, cols2 = indexes_visited(parent2, start[0], start[1])
-
-        # make a list of tuples with coordinates of each parent: (row, col)
-        coordinates_parent1 = list(zip(rows1,cols1))
-        coordinates_parent2 = list(zip(rows2,cols2))
-
-        # separately store coordinates on fields and walls/out of bounds coordinates; coordinates do not duplicate
-        same_coordinates_field = []
-        same_coordinates_other = []
-        # loop over shorter solution and find same coordinates
-        for coordinate in (coordinates_parent1 if len(rows1) < len(rows2) else coordinates_parent2):
-            if coordinate in (coordinates_parent2 if len(rows1) < len(rows2) else coordinates_parent1): 
-                row = coordinate[0]
-                col = coordinate[1]
-                if (0 <= row and row < height) and (0 <= col and col < width) and maze[row,col] != 0:
-                    if coordinate not in same_coordinates_field:
-                        same_coordinates_field.append(coordinate)
-                else:
-                    if coordinate not in same_coordinates_other:
-                        same_coordinates_other.append(coordinate)
-
-        len_fields = len(same_coordinates_field)
-        len_other = len(same_coordinates_other)
-        # if there are no same coordinates, preform single-point crossover
-        if len_fields == 0 and  len_other == 0:
-            child = single_point_crossover(offspring_size, parent1, parent2)
-        # else make a crossover at one of the same coordinates
-        elif len_fields == 0:
-            child = same_coordinate_crossover(parent1, parent2, coordinates_parent1, coordinates_parent2, same_coordinates_other)
-        else:
-            child = same_coordinate_crossover(parent1, parent2, coordinates_parent1, coordinates_parent2, same_coordinates_field)
-
-        offspring.append(child)
-        id_parent += 1
-
-    return np.array(offspring)
-
+## CROSSOVER FUNCITIONS
 # splits on random same coordinate of both parents
-def crossover_func_ver2(parents, offspring_size, ga_instance):
+def crossover_func_same_coordinate(parents, offspring_size, ga_instance):
     height, width =  maze.shape
     offspring = []
     id_parent = 0
@@ -289,42 +231,7 @@ def crossover_func_ver2(parents, offspring_size, ga_instance):
 
     return np.array(offspring)
 
-def crossover_func_ver3(parents, offspring_size, ga_instance):
-    height, width =  maze.shape
-    offspring = []
-    id_parent = 0
-    while len(offspring) != offspring_size[0]:
-        # choose two parents
-        parent1 = parents[id_parent % parents.shape[0], :].copy()
-        parent2 = parents[(id_parent + 1) % parents.shape[0], :].copy()
-
-        # get all coordinates for both parents
-        rows1, cols1 = indexes_visited(parent1, start[0], start[1])
-        rows2, cols2 = indexes_visited(parent2, start[0], start[1])
-
-        # make a list of tuples with coordinates of each parent: (row, col)
-        coordinates_parent1 = list(zip(rows1,cols1))
-        coordinates_parent2 = list(zip(rows2,cols2))
-
-        same_coordinate = None
-        # loop over shorter solution and find same coordinates
-        for coordinate in (coordinates_parent1 if len(rows1) < len(rows2) else coordinates_parent2):
-            if coordinate in (coordinates_parent2 if len(rows1) < len(rows2) else coordinates_parent1): 
-                same_coordinate = coordinate 
-
-        # if there are no same coordinates, preform single-point crossover
-        if same_coordinate is None:
-            child = single_point_crossover(offspring_size, parent1, parent2)
-        # else make a crossover at one of the same coordinates
-        else:
-            child = same_coordinate_crossover2(parent1, parent2, coordinates_parent1, coordinates_parent2, same_coordinate)
-
-        offspring.append(child)
-        id_parent += 1
-
-    return np.array(offspring)
-
-# Mutation function
+## MUTATION FUNCITIONS
 def find_end(move, starting_row, starting_col, gene, move_index):
     height,width = maze.shape
 
@@ -361,13 +268,13 @@ def mutate_gene(gene):
         elif move == 3:
             col += 1
 
-        # lahko bi belezil kolikokrat je katero polje "prehojeno" in ga vedno usmeril v smer, kjer je najmanj 
+        # change move if it leads to wall or out of bounds
         if (row >= height or row < 0) or (col >= width or col < 0) or maze[row,col] == 0:
             if (find_end(move, last_row, last_col, gene, i)):
                 return gene
             else:
                 gene[i] = (move + random.randint(1,3)) % 4
-        elif maze[row,col] == 3:
+        elif find_end(move, last_row, last_col, gene, i):
             return gene
 
     return gene
@@ -377,37 +284,6 @@ def mutation_func_aljaz(offspring, ga_instance):
     for i in range(num_of_offsprings):
         offspring[i, :] = mutate_gene(offspring[i, :])
     return offspring    
-
-# Initial population with all solutions arriving to end after aproximately half of possible moves,
-# but going through walls and out of maze
-# num_genes must be at least two times bigger than distance between start and end
-def initial_to_end_through_walls(sol_per_pop, num_genes, start, end, maze_shape):
-    col, row = start
-    population = np.zeros((sol_per_pop, num_genes), dtype=np.int32)
-    for i in range(sol_per_pop):
-        distance_row = end[0] - start[0]
-        distance_col = end[1] - start[1]
-        free_moves = num_genes // 2 - abs(distance_col) - abs(distance_row)
-        if distance_row > 0:
-            up = free_moves // 4
-            down = free_moves // 4 + distance_row
-        else:
-            up = free_moves // 4 - distance_row
-            down = free_moves // 4
-        if distance_col > 0:
-            left = free_moves // 4
-            right = free_moves // 4 + distance_col
-        else:
-            left = free_moves // 4 - distance_col
-            right = free_moves // 4
-        moves = np.zeros(num_genes)
-        moves[:up + down + left + right] = np.concatenate((np.zeros(up), 
-            np.ones(down), np.ones(left) * 2, np.ones(right) * 3))
-        np.random.shuffle(moves[:up + down + left + right])
-        for j in range(free_moves % 4):
-            moves[-1-j] = random.randint(0, 3)
-        population[i,:] = moves
-    return population
 
 # calculates row and column indexes after all moves
 def indexes_visited(moves, start_col, start_row):
@@ -462,6 +338,38 @@ def mutation_func_two_adjacent_genes(offspring, ga_instance):
     for chromosome_idx in range(offspring.shape[0]):
         offspring[chromosome_idx, :] = mutate_two_adjacent_genes(offspring[chromosome_idx, :])
     return offspring
+
+## OTHER FUNCITIONS
+# Initial population with all solutions arriving to end after aproximately half of possible moves,
+# but going through walls and out of maze
+# num_genes must be at least two times bigger than distance between start and end
+def initial_to_end_through_walls(sol_per_pop, num_genes, start, end, maze_shape):
+    col, row = start
+    population = np.zeros((sol_per_pop, num_genes), dtype=np.int32)
+    for i in range(sol_per_pop):
+        distance_row = end[0] - start[0]
+        distance_col = end[1] - start[1]
+        free_moves = num_genes // 2 - abs(distance_col) - abs(distance_row)
+        if distance_row > 0:
+            up = free_moves // 4
+            down = free_moves // 4 + distance_row
+        else:
+            up = free_moves // 4 - distance_row
+            down = free_moves // 4
+        if distance_col > 0:
+            left = free_moves // 4
+            right = free_moves // 4 + distance_col
+        else:
+            left = free_moves // 4 - distance_col
+            right = free_moves // 4
+        moves = np.zeros(num_genes)
+        moves[:up + down + left + right] = np.concatenate((np.zeros(up), 
+            np.ones(down), np.ones(left) * 2, np.ones(right) * 3))
+        np.random.shuffle(moves[:up + down + left + right])
+        for j in range(free_moves % 4):
+            moves[-1-j] = random.randint(0, 3)
+        population[i,:] = moves
+    return population
 
 # Runs after every generation of GA
 last_fitness = 0
@@ -534,6 +442,8 @@ def on_stop(ga_instance, fitness):
 
     print("Treasurs found: " + str(len(treasures_coordinates)))
 
+
+## INICIALIZATION OF GENETIC ALGORITHM
 # Choose the maze
 original_maze = maze6
 maze = convert(original_maze)
@@ -552,8 +462,7 @@ ga_instance = pygad.GA(num_generations=2000,
                     #    initial_population=population,
                        gene_space=[0, 1, 2, 3],
                        keep_elitism=5,
-                       stop_criteria="saturate_200", # stop evolution, if the fitness does not change for 100 consecutive generations.
-
+                       stop_criteria="saturate_200",
                     #    crossover_type=None,
                        crossover_type="Uniform",
 
@@ -565,8 +474,9 @@ ga_instance = pygad.GA(num_generations=2000,
                        mutation_type=mutation_func_aljaz,
                        fitness_func=fitness_func_aljaz,
 
-                       on_generation=on_generation,
-                       on_stop=on_stop)
+                    #    on_generation=on_generation,
+                    #    on_stop=on_stop
+                       )
 
 # Running the GA to optimize the parameters of the function.
 ga_instance.run()
