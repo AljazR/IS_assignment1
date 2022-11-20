@@ -1,7 +1,6 @@
 import pygad
 import numpy as np
 import time
-import math
 from mazes import *
 import random
 
@@ -13,7 +12,7 @@ def convert(mazeChars):
 move_letters = ["U", "D", "L", "R"]
 
 # Choose the maze
-original_maze = maze7_T
+original_maze = maze8
 maze = convert(original_maze)
 
 # Get the coordinates of 'S' and 'E': (row, column)
@@ -77,7 +76,7 @@ def preprocess_maze(maze):
     print(next_points)
     print(moves_to_next_points)
     """
-    return start_point, end_point, treasures, next_points, moves_to_next_points
+    return start_point, end_point, treasures, decision_points, next_points, moves_to_next_points
 
 # returns first possible next decision point in given direction and moves to it
 def next_point(maze, decision_points, row, col, move):
@@ -132,8 +131,7 @@ def next_point(maze, decision_points, row, col, move):
             return -1, np.zeros(0)
     return decision_points[row, col], np.array(moves)
 
-start_point, end_point, treasures, next_points, moves_to_next_points = preprocess_maze(maze)
-print(treasures)
+start_point, end_point, treasures, decision_points,  next_points, moves_to_next_points = preprocess_maze(maze)
 
 # fitness
 def fitness_points(solution, solution_idx):
@@ -147,12 +145,6 @@ def fitness_points(solution, solution_idx):
         if current_point == end_point:
             return 1000000 + len(found_treasures) * 10000 - length
         elif np.any(treasures == current_point):
-            """
-            print(np.any(treasures == current_point))
-            print(treasures)
-            print(current_point)
-            print()
-            """
             found_treasures.add(current_point)
             pass
     return len(found_treasures) * 10000 + length
@@ -175,20 +167,104 @@ def mutation_points(offspring, ga_instance):
             current_point = point
     return offspring
 
+# returns a sequence of visited decision points
+def decision_points_visited(solution):
+    visited = np.zeros(solution.size)
+    current_point = start_point
+    for i in range(solution.size):
+        visited[i] = next_points[current_point, int(solution[i])]
+        current_point = next_points[current_point, int(solution[i])]
+    return visited
+
+# adds new valid moves to the end
+def extend(child, new_moves):
+    new_child = np.zeros(child.size + new_moves)
+    new_child[:child.size] = child
+    current_point = start_point
+    for i in range(child.size):
+        current_point = next_points[current_point, int(child[i])]
+    for i in range(new_moves):
+        move = random.randint(0, 3)
+        point = next_points[current_point, move]
+        while point == -1:
+            move = random.randint(0, 3)
+            point = next_points[current_point, move]
+        new_child[child.size + i] = move
+        current_point = point
+    return new_child
+
 # crossover
 # finds mutual point and combines path from start to that poin 
 # from first parent and to the end from other
-# TO-DO
 def crossover_points(parents, offspring_size, ga_instance):
+    height, width =  maze.shape
     offspring = []
-    return offspring
+    id_parent = 0
+    while len(offspring) != offspring_size[0]:
+        # choose two parents
+        parent1 = parents[id_parent % parents.shape[0], :].copy()
+        parent2 = parents[(id_parent + 1) % parents.shape[0], :].copy()
+
+        # get all decision points for both parents
+        points1 = decision_points_visited(parent1)[:-1]
+        points2 = decision_points_visited(parent2)[:-1]
+
+        # calculates same points and randomly cooses one of them
+        same_points = set(points1).intersection(set(points2))
+        same_point = random.sample(same_points, 1)
+
+        # chooses one of the indexes of same_point for both parents
+        idx1_same_point = random.sample(set(np.where(points1 == same_point)[0]), 1)[0] + 1
+        idx2_same_point = random.sample(set(np.where(points2 == same_point)[0]), 1)[0] + 1
+
+        # splits parents in firt and second part
+        if idx1_same_point < idx2_same_point:
+            short_first_part = parent1[:idx1_same_point]
+            long_first_part = parent2[:idx2_same_point]
+            long_second_part = parent1[idx1_same_point:]
+            short_second_part = parent2[idx2_same_point:]
+        else:
+            short_first_part = parent2[:idx2_same_point]
+            long_first_part = parent1[:idx1_same_point]
+            long_second_part = parent2[idx2_same_point:]
+            short_second_part = parent1[idx1_same_point:]
+
+        # size difference
+        difference = abs(idx1_same_point - idx2_same_point)
+
+        # creates and adds the first child
+        long_child = np.concatenate((long_first_part, long_second_part))
+        if difference > 0:
+            long_child = long_child[:-difference]
+        offspring.append(long_child)
+
+        # creates and adds the second child if there is not enough offspring yet
+        if (len(offspring) < offspring_size[0]):
+            short_child = np.concatenate((short_first_part, short_second_part))
+            short_child = extend(short_child, difference)
+            offspring.append(short_child)
+        
+        """
+        print(parent1)
+        print(parent2)
+        print(long_child)
+        print(short_child)
+        print(idx1_same_point, idx2_same_point, same_point)
+        print(decision_points_visited( parent1))
+        print(decision_points_visited( parent2))
+        print(decision_points_visited( long_child))
+        print(decision_points_visited( short_child))
+        print()
+        """
+        id_parent += 1
+    #print(np.array(offspring))
+    return np.array(offspring)
 
 # population
 # generates sol_per_pop solutions represented as sequence of moves after decision points.
 # length of solutions is length_factor times the number of different
 # decision points in the maze
 def population_points(maze, sol_per_pop, length_factor):
-    start_point, end_point, treasures, next_points, moves_to_next_points = preprocess_maze(maze)
     num_points = next_points.shape[0]
     num_genes = num_points * length_factor
     population = np.zeros((sol_per_pop, num_genes), dtype=np.int32)
@@ -204,10 +280,18 @@ def population_points(maze, sol_per_pop, length_factor):
                 point = next_points[current_point, move]
             population[i, j] = move
             current_point = point
+    """
+    for line in original_maze:
+        print(line)
+    print(decision_points)
+    print(population[0,:])
+    print(decision_points_visited(population[0,:]))
+    """
     return population
 
 def on_stop_points(ga_instance, fitness):
     solution_points = np.array(ga_instance.best_solution()[0], dtype=np.int32)
+    print(solution_points)
     solution = []
 
     # converts solution containing only moves after decision points to list of all moves
@@ -269,22 +353,24 @@ def on_stop_points(ga_instance, fitness):
     print('\n')
 
 
-sol_per_pop = 100
+sol_per_pop = 50
+keep_elitism = 10
+num_parents_maiting = 20
 length_factor = 3
 population_p = population_points(maze, sol_per_pop, length_factor)
 
 
 # Creating an instance of the GA class inside the ga module.
 ga_instance = pygad.GA(num_generations=2000,
-                       num_parents_mating=30, 
+                       num_parents_mating=num_parents_maiting,
                        #sol_per_pop=sol_per_pop,
                        initial_population=population_p,
                        gene_space=[0, 1, 2, 3],
-                       keep_elitism=10,
+                       keep_elitism=keep_elitism,
                        #random_seed=2,
                        stop_criteria="saturate_200", # stop evolution, if the fitness does not change for 200 consecutive generations.
-                       crossover_type=None,
-                       #crossover_type=crossover_points,
+                       #crossover_type=None,
+                       crossover_type=crossover_points,
                        mutation_type=mutation_points,
                        fitness_func=fitness_points,
                        on_generation=on_generation,
